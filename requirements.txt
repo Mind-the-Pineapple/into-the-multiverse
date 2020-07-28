@@ -1,0 +1,9 @@
+scikit-learn
+pandas==1.0.5
+sklearn_rvm
+plotly==4.9.0
+pyreadr==0.2.9
+scipy==1.5.2
+bctpy==0.5.2
+matplotlib==3.3.0
+numpy==1.19.1
