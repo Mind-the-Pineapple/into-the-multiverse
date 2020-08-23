@@ -8,4 +8,4 @@ bctpy==0.5.2
 matplotlib==3.3.0
 numpy==1.19.1
 bayesian-optimization==1.2.0
-umap==0.1.1
+umap-learn==0.4.6

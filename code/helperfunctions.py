@@ -8,10 +8,16 @@ from matplotlib import cm
 import bct
 from sklearn.svm import SVR, SVC
 from sklearn.model_selection import cross_val_score
+from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import KFold
 from sklearn.model_selection import StratifiedKFold
-from scipy.stats import hypergeom
+from sklearn.gaussian_process.kernels import Matern, WhiteKernel
+from sklearn.gaussian_process import GaussianProcessRegressor
+from scipy.stats import hypergeom, spearmanr
+from bayes_opt import BayesianOptimization
+from bayes_opt import UtilityFunction
+from tqdm import tqdm
 
 # Set the random seed
 np.random.seed(2)
@@ -375,15 +381,57 @@ def display_gp_mean_uncertainty(kernel, optimizer, pbounds, BadIter):
 
     return gp
 
+def initialize_bo(ModelEmbedding, kappa):
+    """
+    """
+    RandomSeed = 118
+    np.random.seed(RandomSeed)
 
-def bayesian_optimisation(kernel, optimizer, utility, init_points, n_iter,
-                          pbounds, nbrs, RandomSeed, ModelEmbedding, BCT_models,
-                          BCT_Run, Sparsities_Run, Data_Run, Ages, CommunityIDs,
-                          data1, data2, ClassOrRegress, MultivariateUnivariate):
+    # Define the kernel: white noise kernel plus Mattern
+    kernel = 1.0 * Matern(length_scale=25, length_scale_bounds=(10,80),nu=2.5) \
+        + WhiteKernel(noise_level=0.1, noise_level_bounds=(1e-10, 0.1))
 
-    BadIters=np.empty(0)
-    LastModel=-1
-    Iter=0
+    # Define bounds
+    lb1 = np.min(ModelEmbedding[:, 0])
+    hb1 = np.max(ModelEmbedding[:, 0])
+    lb2 = np.min(ModelEmbedding[:, 1])
+    hb2 = np.max(ModelEmbedding[:, 1])
+    pbounds = {'b1': (lb1, hb1), 'b2': (lb2, hb2)}
+
+    # For finding nearest point in space to next suggested sample from
+    # Bayesian optimization
+    nbrs = NearestNeighbors(n_neighbors=2, algorithm='ball_tree'
+            ).fit(ModelEmbedding)
+
+    # Acquisition function. Larger k (exploratory) smaller k (exploitatory)
+    utility = UtilityFunction(kind="ucb", kappa=kappa, xi=1e-1)
+
+    # Number of burn in random initial samples
+    init_points = 10
+    # Number of iterations of Bayesian optimization after burn in
+    n_iter = 40
+
+    # Initialise optimizer
+    optimizer = BayesianOptimization(f=None,
+                                     pbounds=pbounds,
+                                     verbose=4,
+                                     random_state=RandomSeed)
+
+    optimizer.set_gp_params(kernel=kernel, normalize_y=True,
+                            n_restarts_optimizer=10)
+    return kernel, optimizer, utility, init_points, n_iter, pbounds, nbrs, \
+           RandomSeed
+
+def run_bo(kernel, optimizer, utility, init_points, n_iter,
+           pbounds, nbrs, RandomSeed, ModelEmbedding, BCT_models,
+           BCT_Run, Sparsities_Run, Data_Run, Ages, CommunityIDs,
+           data1, data2, ClassOrRegress, MultivariateUnivariate=True,
+           verbose=True):
+
+    BadIters = np.empty(0)
+    LastModel = -1
+    Iter = 0
+    pbar = tqdm(total=(2 * init_points) + n_iter)
     while Iter < init_points + n_iter:
         np.random.seed(RandomSeed+Iter)
         # If burnin
@@ -393,14 +441,16 @@ def bayesian_optimisation(kernel, optimizer, utility, init_points, n_iter,
                                                            pbounds['b1'][1]),
                                    'b2': np.random.uniform(pbounds['b2'][0],
                                                            pbounds['b2'][1])}
-            print("Next point to probe is:", next_point_to_probe)
+            if verbose:
+                print("Next point to probe is:", next_point_to_probe)
             s1, s2 = next_point_to_probe.values()
 
         # if optimization
         else:
             # Choose point in space to probe next in search space using optimizer
             next_point_to_probe = optimizer.suggest(utility)
-            print("Next point to probe is:", next_point_to_probe)
+            if verbose:
+                print("Next point to probe is:", next_point_to_probe)
             s1, s2 = next_point_to_probe.values()
 
         # convert suggested coordinates to np array
@@ -427,69 +477,204 @@ def bayesian_optimisation(kernel, optimizer, utility, init_points, n_iter,
             #from any actual analysis approaches by assigning them the value of
             # the worst performing approach in the burn-in
             LastModel = TempModelNum
-            BadIters=np.append(BadIters,0)
-        # Call the objective function and evaluate the model/pipeline
-            if MultivariateUnivariate<0:
-                target=objectiveFunc(TempModelNum,Ages,Sparsities_Run,Data_Run,
-                                     BCT_models,BCT_Run,CommunityIDs,data1,
-                                     data2,ClassOrRegress)
-                print("Next Iteration")
-                print(Iter)
-                # print("Model Num %d " % TempModelNum)
-                print('Print indices: %d  %d' % (indices[0][0], indices[0][1]))
-                print(Distance)
-                print("Target Function: %.4f" % (target))
-                print(' ')
+            BadIters = np.append(BadIters,0)
+            # Call the objective function and evaluate the model/pipeline
+            if MultivariateUnivariate:
+                target = objectiveFunc(TempModelNum, Ages, Sparsities_Run,
+                                       Data_Run, BCT_models, BCT_Run,
+                                       CommunityIDs, data1, data2,
+                                       ClassOrRegress)
+                if verbose:
+                    print("Next Iteration")
+                    print(Iter)
+                    # print("Model Num %d " % TempModelNum)
+                    print('Print indices: %d  %d' % (indices[0][0], indices[0][1]))
+                    print(Distance)
+                    print("Target Function: %.4f" % (target))
+                    print(' ')
                 np.random.seed(Iter)
                 # This is a hack. Add a very small random number to the coordinates so
                 # that even if the model has been previously selected the GP thinks its
                 # a different point, since this was causing it to crash
                 TempLoc1 = ActualLocation[0] + (np.random.random_sample(1) - 0.5)/10
                 TempLoc2 = ActualLocation[1] + (np.random.random_sample(1) - 0.5)/10
-            else:
-                target=objectiveFuncUnivariate(TempModelNum,Ages,Sparsities_Run,Data_Run,BCT_models,BCT_Run,CommunityIDs,data1,data2,MultivariateUnivariate)
-                print("Next Iteration")
-                print(Iter)
-
-                print('Print indices: %d  %d' % (indices[0][0], indices[0][1]))
-                print(Distance)
-                print("Target Function: %.4f" % (target))
-                print(' ')
-
-                np.random.seed(Iter)
-                # This is a hack to add very small random number to the coordinates so
-                # that even if the model has been previously selected the GP thinks its
-                # a different point, since this was causing it to crash
-                TempLoc1 = ActualLocation[0] + (np.random.random_sample(1) - 0.5)/10
-                TempLoc2 = ActualLocation[1] + (np.random.random_sample(1) - 0.5)/10
-
         else:
-
             newlist = sorted(optimizer.res, key=lambda k: k['target'])
             target=newlist[0]['target']
             LastModel = -1
 
-            print("Next Iteration")
-            print(Iter)
-            # print("Model Num %d " % TempModelNum)
-#            print('Print indices: %d  %d' % (indices[0][0], indices[0][1]))
-            print(Distance)
-            print("Target Function Default Bad: %.4f" % (target))
-            BadIters=np.append(BadIters,1)
+            if verbose:
+                print("Next Iteration")
+                print(Iter)
+                # print("Model Num %d " % TempModelNum)
+    #            print('Print indices: %d  %d' % (indices[0][0], indices[0][1]))
+                print(Distance)
+                print("Target Function Default Bad: %.4f" % (target))
+                print(' ')
 
-            print(' ')
-            np.random.seed(Iter)
+            BadIters = np.append(BadIters,1)
             TempLoc1 = Model_coord[0][0]
             TempLoc2 = Model_coord[0][1]
             n_iter=n_iter+1
 
         Iter=Iter+1
+        pbar.update(1)
 
         # Update the GP data with the new coordinates and model performance
         register_sample = {'b1': TempLoc1, 'b2': TempLoc2}
         optimizer.register(params=register_sample, target=target)
+    pbar.close()
     return BadIters
 
 
+def plot_bo_estimated_space(kappa, BadIter, optimizer, pbounds, ModelEmbedding,
+                        PredictedAcc, kernel, output_path):
+    x = np.linspace(pbounds['b1'][0] - 10, pbounds['b1'][1] + 10, 500).reshape(
+    -1, 1)
+    y = np.linspace(pbounds['b2'][0] - 10, pbounds['b2'][1] + 10, 500).reshape(
+        -1, 1)
+    gp = GaussianProcessRegressor(kernel=kernel, normalize_y=True,
+                                  n_restarts_optimizer=10)
+
+    x_temp = np.array([[res["params"]["b1"]] for res in optimizer.res])
+    y_temp = np.array([[res["params"]["b2"]] for res in optimizer.res])
+    z_temp = np.array([res["target"] for res in optimizer.res])
+
+    x_obs=x_temp[BadIter==0]
+    y_obs=y_temp[BadIter==0]
+    z_obs=z_temp[BadIter==0]
+
+    NumSamplesToInclude=x_obs.shape[0]
+    x1x2 = np.array(list(product(x, y)))
+    X0p, X1p = x1x2[:, 0].reshape(500, 500), x1x2[:, 1].reshape(500, 500)
+
+    mu, sigma, gp = posterior(gp, x_obs[0:NumSamplesToInclude],
+                              y_obs[0:NumSamplesToInclude],
+                              z_obs[0:NumSamplesToInclude], x1x2)
+
+    Zmu = np.reshape(mu, (500, 500))
+    Zsigma = np.reshape(sigma, (500, 500))
+
+    conf0 = np.array(mu - 2 * sigma).reshape(500, 500)
+    conf1 = np.array(mu + 2 * sigma).reshape(500, 500)
+
+    X0p, X1p = np.meshgrid(x, y, indexing='ij')
+
+    font_dict_title = {'fontsize': 25}
+    font_dict_label = {'fontsize': 15}
+    font_dict_label3 = {'fontsize': 15}
+    #print(x_obs.shape)
+    vmax = Zmu.max()
+    vmin = Zmu.min()
+
+    cm = ['coolwarm', 'seismic']
+    fig, (ax1,ax2) = plt.subplots(1,2,figsize=(16,8))
+
+    ax = ax1
+    pcm = ax.pcolormesh(X0p, X1p, Zmu, vmax=vmax, vmin=vmin, cmap=cm[0],
+                        rasterized=True)
+    ax.set_xlim(-50, 50)
+    ax.set_ylim(-50, 50)
+    ax.set_aspect('equal', 'box')
+    ax = ax2
+    pcm = ax.scatter(ModelEmbedding[0:PredictedAcc.shape[0],0],
+                     ModelEmbedding[0:PredictedAcc.shape[0],1],
+                     c=PredictedAcc*10, vmax=vmax*10, vmin=vmin*10,
+                     cmap=cm[0], rasterized=True)
+    ax.set_aspect('equal', 'box')
+
+    fig.tight_layout()
+    ax.set_xlim(-50, 50)
+    ax.set_ylim(-50, 50)
+    fig.subplots_adjust(right=0.8)
+    cbar_ax = fig.add_axes([0.825, 0.35, 0.02, 0.3])
+    fig.colorbar(pcm, cax=cbar_ax)
+
+    fig.savefig(str(output_path / f'BOptAndTrueK{kappa}.png'), dpi=300)
+    fig.savefig(str(output_path / f'BOptAndTrueK{kappa}.svg'), format='svg', dpi=300)
+
+    return x_obs, y_obs, z_obs, x, y, gp, vmax, vmin
+
 # TODO: Check if ModelDict has the same pipeline as fitted_model
 # Save the results in a pickle
+
+def plot_bo_evolution(kappa, x_obs, y_obs, z_obs, x, y, gp, vmax, vmin,
+                      ModelEmbedding, PredictedAcc, output_path):
+    fig, axs = plt.subplots(5, 3, figsize=(12,18))
+    n_samples = [5,10,20,30,50]
+    cm = ['coolwarm', 'seismic']
+    PredictedAcc = PredictedAcc * 10
+    for idx, NumSamplesToInclude in enumerate(n_samples):
+
+        x1x2 = np.array(list(product(x, y)))
+        X0p, X1p = x1x2[:, 0].reshape(500, 500), x1x2[:, 1].reshape(500, 500)
+        mu, sigma, gp = posterior(gp, x_obs[0:NumSamplesToInclude],
+                                   y_obs[0:NumSamplesToInclude],
+                                   z_obs[0:NumSamplesToInclude], x1x2)
+        muModEmb,sigmaModEmb,gpModEmb = posteriorOnlyModels(gp,
+                                                          x_obs[0:NumSamplesToInclude],
+                                                          y_obs[0:NumSamplesToInclude],
+                                                          z_obs[0:NumSamplesToInclude],
+                                                          ModelEmbedding)
+        Zmu = np.reshape(mu, (500, 500))
+        Zsigma = np.reshape(sigma, (500, 500))
+
+        conf0 = np.array(mu - 2 * sigma).reshape(500, 500)
+        conf1 = np.array(mu + 2 * sigma).reshape(500, 500)
+
+        X0p, X1p = np.meshgrid(x, y, indexing='ij')
+
+        ax = axs[idx,0]
+
+        pcm = ax.pcolormesh(X0p, X1p, Zmu,vmax=vmax, vmin=vmin,
+                cmap=cm[0],rasterized=True)
+        ax.set_aspect('equal', 'box')
+        ax.set_xlim(-50, 50)
+        ax.set_ylim(-50, 50)
+        ax = axs[idx,1]
+
+        pcm = ax.pcolormesh(X0p, X1p, Zsigma,cmap=cm[1],rasterized=True)#,vmax=vmax,vmin=vmin)
+        ax.set_title("Iterations: %i" % (NumSamplesToInclude),fontsize=15,fontweight="bold")
+        ax.set_aspect('equal', 'box')
+        ax.set_xlim(-50, 50)
+        ax.set_ylim(-50, 50)
+
+        ax = axs[idx,2]
+        # For visualisation purposes
+        muModEmb = muModEmb * 10
+        pcm=ax.scatter(muModEmb[PredictedAcc!=PredictedAcc.min()],
+                       PredictedAcc[PredictedAcc!=PredictedAcc.min()],
+                       marker='.', c='gray')
+        ax.set_xlim(-2.55, -2.25)
+        ax.set_ylim(-2.55, -2.25)
+        ax.set_aspect('equal', 'box')
+
+    fig.savefig(str(output_path / f'BOptEvolutionK{kappa}.svg'),format='svg',dpi=300)
+
+    print('Correlation between actual and predicted space')
+    print(np.corrcoef(muModEmb,PredictedAcc))
+    print(spearmanr(muModEmb,PredictedAcc))
+
+def analysis_space(BCT_Num, BCT_models, x, KeptYeoIDs ):
+    x = bct.threshold_proportional(TempData[:,:,SubNum], TempThreshold, copy=True)
+    if BCT_Num == 'local efficiency':
+        ss = BCT_models[BCT_Num](x,1)
+    elif BCT_Num == 'modularity (louvain)':
+        ss, _ = BCT_models[BCT_Num](x, seed=2)
+    elif BCT_Num== 'modularity (probtune)':
+        ss, _ = BCT_models[BCT_Num](x, seed=2)
+    elif BCT_Num == 'participation coefficient':
+        ss = BCT_models[BCT_Num](x, KeptYeoIDs)
+    elif BCT_Num == 'module degree z-score':
+        ss = BCT_models[BCT_Num](x, KeptYeoIDs)
+    elif BCT_Num == 'pagerank centrality':
+        ss = BCT_models[BCT_Num](x, 0.85)
+    elif BCT_Num == 'diversity coefficient':
+        ss, _ = BCT_models[BCT_Num](x, KeptYeoIDs)
+    elif BCT_Num == 'gateway degree':
+        ss, _ = BCT_models[BCT_Num](x, KeptYeoIDs)
+    elif BCT_Num == 'k-core centrality':
+        ss, _ = BCT_models[BCT_Num](x)
+    else:
+        ss = BCT_models[BCT_Num](x)
+    return ss
