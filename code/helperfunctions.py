@@ -28,7 +28,7 @@ def gateway_coef_sign(W, ci, centrality_type='degree'):
     '''
     The gateway coefficient is a variant of participation coefficient.
     It is weighted by how critical the connections are to intermodular
-    connectivity (e.g. if a node is the only connection between its
+    connectivity (e.g. if a uode is the only connection between its
     module and another module, it will have a higher gateway coefficient,
     unlike participation coefficient).
     Parameters
@@ -381,7 +381,7 @@ def display_gp_mean_uncertainty(kernel, optimizer, pbounds, BadIter):
 
     return gp
 
-def initialize_bo(ModelEmbedding, kappa):
+def initialize_bo(ModelEmbedding, kappa, repetitions=False):
     """
     """
     RandomSeed = 118
@@ -409,7 +409,10 @@ def initialize_bo(ModelEmbedding, kappa):
     # Number of burn in random initial samples
     init_points = 10
     # Number of iterations of Bayesian optimization after burn in
-    n_iter = 40
+    if repetitions:
+        n_iter = 10
+    else:
+        n_iter = 40
 
     # Initialise optimizer
     optimizer = BayesianOptimization(f=None,
@@ -655,8 +658,7 @@ def plot_bo_evolution(kappa, x_obs, y_obs, z_obs, x, y, gp, vmax, vmin,
     print(np.corrcoef(muModEmb,PredictedAcc))
     print(spearmanr(muModEmb,PredictedAcc))
 
-def analysis_space(BCT_Num, BCT_models, x, KeptYeoIDs ):
-    x = bct.threshold_proportional(TempData[:,:,SubNum], TempThreshold, copy=True)
+def analysis_space(BCT_Num, BCT_models, x, KeptYeoIDs):
     if BCT_Num == 'local efficiency':
         ss = BCT_models[BCT_Num](x,1)
     elif BCT_Num == 'modularity (louvain)':
@@ -678,3 +680,48 @@ def analysis_space(BCT_Num, BCT_models, x, KeptYeoIDs ):
     else:
         ss = BCT_models[BCT_Num](x)
     return ss
+
+def plot_bo_repetions(ModelEmbedding, PredictedAcc, BestModelGPSpaceModIndex,
+                      BestModelEmpiricalModIndex, BestModelEmpirical,
+                      ModelActualAccuracyCorrelation, output_path):
+    # displaying results of 20 iterations
+
+    fig8 = plt.figure(constrained_layout=False,figsize=(18,6))
+    gs1 = fig8.add_gridspec(nrows=6, ncols=18)
+    ax1 = fig8.add_subplot(gs1[:,0:6])
+    ax1.set_title('Optima GP regression: 20 iterations',fontsize=15,
+            fontweight="bold")
+    ax1.scatter(ModelEmbedding[0:PredictedAcc.shape[0],0],
+                ModelEmbedding[0:PredictedAcc.shape[0],1],
+                c=PredictedAcc*10,cmap='coolwarm',alpha=0.2,s=120)#vmax=vmax,vmin=vmin,
+    ax1.scatter(ModelEmbedding[BestModelGPSpaceModIndex.astype(int)][:,0],
+                ModelEmbedding[BestModelGPSpaceModIndex.astype(int)][:,1],s=120,c='black')
+
+    ax1.set_xlim(-50, 50)
+    ax1.set_ylim(-50, 50)
+
+    ax2 = fig8.add_subplot(gs1[:,7:13])
+    ax2.set_title('Empirical optima: 20 iterations',fontsize=15,fontweight="bold")
+    ax2.scatter(ModelEmbedding[0:PredictedAcc.shape[0],0],
+                ModelEmbedding[0:PredictedAcc.shape[0],1],
+                c=PredictedAcc*10,cmap='coolwarm',s=120,alpha=0.2)#vmax=vmax,vmin=vmin,
+    ax2.scatter(ModelEmbedding[BestModelEmpiricalModIndex.astype(int)][:,0],
+                ModelEmbedding[BestModelEmpiricalModIndex.astype(int)][:,1],
+                c='black', s=120)
+
+    ax2.set_xlim(-50, 50)
+    ax2.set_ylim(-50, 50)
+
+    ax3 = fig8.add_subplot(gs1[:, 14:16])
+    ax3.violinplot([PredictedAcc*10, BestModelEmpirical*10])
+    ax3.set_xticks([1, 2])
+    ax3.set_xticklabels(['Accuracy \n of all points', 'Accuracy\n of optima'],
+            fontsize=9)
+
+    ax4 = fig8.add_subplot(gs1[:,17:18])
+    ax4.violinplot([ModelActualAccuracyCorrelation])
+    ax4.set_xticks([1])
+    ax4.set_xticklabels(['Correlation: \n est vs emp '],fontsize=9)
+
+    fig8.savefig(str(output_path / 'BOpt20Repeats.png'),dpi=300)
+    fig8.savefig(str(output_path / 'BOpt20Repeats.svg'),format="svg")
