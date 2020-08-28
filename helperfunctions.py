@@ -649,9 +649,8 @@ def plot_bo_evolution(kappa, x_obs, y_obs, z_obs, x, y, gp, vmax, vmin,
 
     fig.savefig(str(output_path / f'BOptEvolutionK{kappa}.svg'),format='svg',dpi=300)
 
-    print('Correlation between actual and predicted space')
-    print(np.corrcoef(muModEmb,PredictedAcc))
-    print(spearmanr(muModEmb,PredictedAcc))
+    corr = spearmanr(muModEmb,PredictedAcc)
+    return corr
 
 def analysis_space(BCT_Num, BCT_models, x, KeptYeoIDs):
     if BCT_Num == 'local efficiency':
