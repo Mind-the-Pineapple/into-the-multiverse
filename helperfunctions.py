@@ -14,6 +14,7 @@ from sklearn.model_selection import KFold
 from sklearn.model_selection import StratifiedKFold
 from sklearn.gaussian_process.kernels import Matern, WhiteKernel
 from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.pipeline import Pipeline
 from scipy.stats import hypergeom, spearmanr
 from bayes_opt import BayesianOptimization
 from bayes_opt import UtilityFunction
@@ -258,27 +259,15 @@ def objectiveFunc(TempModelNum, Y, Sparsities_Run, Data_Run, BCT_models, BCT_Run
         #For each subject for each approach keep the 346 regional values.
         TempResults[SubNum, :] = ss
 
-    scaler = StandardScaler()
-    TempResults = scaler.fit_transform(TempResults)
-
     RandInt = np.random.randint(10000)
     #print(RandInt)
-    if ClassOrRegress == 1:
-        model = SVR(C=1.0, epsilon=0.2)
-        cv = KFold(n_splits=10, shuffle=True, random_state=RandInt)
-        scores = cross_val_score(model, TempResults, Y.ravel(), cv=cv,
-                                 scoring='neg_mean_absolute_error')
-        # Note: the scores were divided by 10 in order to keep the values close
-        # to 0 for avoiding problems with the Bayesian Optimisation
-        score = scores.mean()/10
-
-    else:
-        model = SVC(gamma='auto')
-        cv = StratifiedKFold(n_splits=10, random_state=RandInt, shuffle=True)
-        scores = cross_val_score(model, TempResults, Y.ravel(), cv=cv,
-                                 scoring='neg_mean_absolute_error')
-        score = scores.mean()/10
-
+    model = Pipeline([('scaler', StandardScaler()), ('svr', SVR(C=1.0, epsilon=0.2))])
+    cv = KFold(n_splits=10, shuffle=True, random_state=RandInt)
+    scores = cross_val_score(model, TempResults, Y.ravel(), cv=cv,
+                             scoring='neg_mean_absolute_error')
+    # Note: the scores were divided by 10 in order to keep the values close
+    # to 0 for avoiding problems with the Bayesian Optimisation
+    score = scores.mean()/10
     return score
 
 
@@ -381,10 +370,13 @@ def display_gp_mean_uncertainty(kernel, optimizer, pbounds, BadIter):
 
     return gp
 
-def initialize_bo(ModelEmbedding, kappa, repetitions=False):
+def initialize_bo(ModelEmbedding, kappa, repetitions=False, DiffInit=None):
     """
     """
-    RandomSeed = 118
+    if repetitions:
+        RandomSeed = 118 + DiffInit
+    else:
+        RandomSeed = 118
     np.random.seed(RandomSeed)
 
     # Define the kernel: white noise kernel plus Mattern
@@ -429,12 +421,15 @@ def run_bo(kernel, optimizer, utility, init_points, n_iter,
            pbounds, nbrs, RandomSeed, ModelEmbedding, BCT_models,
            BCT_Run, Sparsities_Run, Data_Run, Ages, CommunityIDs,
            data1, data2, ClassOrRegress, MultivariateUnivariate=True,
-           verbose=True):
+           repetitions=False, verbose=True):
 
     BadIters = np.empty(0)
     LastModel = -1
     Iter = 0
-    pbar = tqdm(total=(2 * init_points) + n_iter)
+    if repetitions:
+        pbar = tqdm(total=(init_points) + n_iter)
+    else:
+        pbar = tqdm(total=(2 * init_points) + n_iter)
     while Iter < init_points + n_iter:
         np.random.seed(RandomSeed+Iter)
         # If burnin
@@ -501,6 +496,7 @@ def run_bo(kernel, optimizer, utility, init_points, n_iter,
                 # a different point, since this was causing it to crash
                 TempLoc1 = ActualLocation[0] + (np.random.random_sample(1) - 0.5)/10
                 TempLoc2 = ActualLocation[1] + (np.random.random_sample(1) - 0.5)/10
+                pbar.update(1)
         else:
             newlist = sorted(optimizer.res, key=lambda k: k['target'])
             target=newlist[0]['target']
@@ -518,10 +514,9 @@ def run_bo(kernel, optimizer, utility, init_points, n_iter,
             BadIters = np.append(BadIters,1)
             TempLoc1 = Model_coord[0][0]
             TempLoc2 = Model_coord[0][1]
-            n_iter=n_iter+1
+            n_iter = n_iter+1
 
-        Iter=Iter+1
-        pbar.update(1)
+        Iter = Iter+1
 
         # Update the GP data with the new coordinates and model performance
         register_sample = {'b1': TempLoc1, 'b2': TempLoc2}
