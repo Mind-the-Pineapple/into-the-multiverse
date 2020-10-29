@@ -10,8 +10,7 @@ from sklearn.svm import SVR, SVC
 from sklearn.model_selection import cross_val_score
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import KFold
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import KFold, GridSearchCV
 from sklearn.gaussian_process.kernels import Matern, WhiteKernel
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.pipeline import Pipeline
@@ -185,7 +184,7 @@ def get_null_distribution(N, n_neighbors_step):
 
 
 def objectiveFunc(TempModelNum, Y, Sparsities_Run, Data_Run, BCT_models, BCT_Run,
-                  CommunityIDs, data1, data2, ClassOrRegress):
+                  CommunityIDs, data1, data2, svr_params):
     '''
 
     Define the objective function for the Bayesian optimization.  This consists
@@ -205,7 +204,7 @@ def objectiveFunc(TempModelNum, Y, Sparsities_Run, Data_Run, BCT_models, BCT_Run
         CommunityIDs: Information about the Yeo network Ids
         data1: Motion Regression functional connectivity data of the subjects
                that were not used to create the space
-        data2: Global Signal Regression data for the subjects that were not used
+        data2: Global Signal Regression data for the subjects that gridsearch.cv_results['mean_test_score']were not used
                to create the space
         ClassOrRegress: Define if it is a classification or regression problem
         (0: classification; 1 regression)
@@ -260,13 +259,15 @@ def objectiveFunc(TempModelNum, Y, Sparsities_Run, Data_Run, BCT_models, BCT_Run
         TempResults[SubNum, :] = ss
 
     RandInt = np.random.randint(10000)
-    #print(RandInt)
-    model = Pipeline([('scaler', StandardScaler()), ('svr', SVR(C=1.0, epsilon=0.2))])
+    #svr_c = svr_params[TempModelNum]['svr__C']
+    model = Pipeline([('scaler', StandardScaler()), ('svr', SVR())])
     cv = KFold(n_splits=10, shuffle=True, random_state=RandInt)
     scores = cross_val_score(model, TempResults, Y.ravel(), cv=cv,
                              scoring='neg_mean_absolute_error')
+
     # Note: the scores were divided by 10 in order to keep the values close
     # to 0 for avoiding problems with the Bayesian Optimisation
+    # Load the pre-trained model
     score = scores.mean()/10
     return score
 
@@ -450,7 +451,6 @@ def run_bo(kernel, optimizer, utility, init_points, n_iter,
             if verbose:
                 print("Next point to probe is:", next_point_to_probe)
             s1, s2 = next_point_to_probe.values()
-
         # convert suggested coordinates to np array
         Model_coord = np.array([[s1, s2]])
         # find the index of the models that are closest to this point
@@ -643,8 +643,10 @@ def plot_bo_evolution(kappa, x_obs, y_obs, z_obs, x, y, gp, vmax, vmin,
         pcm=ax.scatter(muModEmb[PredictedAcc!=PredictedAcc.min()],
                        PredictedAcc[PredictedAcc!=PredictedAcc.min()],
                        marker='.', c='gray')
-        ax.set_xlim(-2.55, -2.25)
-        ax.set_ylim(-2.55, -2.25)
+        ax.set_xlim(PredictedAcc.max(), PredictedAcc.min())
+        ax.set_ylim(PredictedAcc.max(), PredictedAcc.min())
+        #ax.set_xlim(-2.55, -2.25)
+        #ax.set_ylim(-2.55, -2.25)
         ax.set_aspect('equal', 'box')
 
     fig.savefig(str(output_path / f'BOptEvolutionK{kappa}.svg'),format='svg',dpi=300)
