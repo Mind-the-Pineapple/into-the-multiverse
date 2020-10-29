@@ -23,7 +23,7 @@ strongly predict participants’ ages as well as approximating how all of the
 analysis approaches perform.
 
 ## Run the code
-All the code can be run using Colab:[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://github.com/JessyD/into-the-multiverse/blob/master/code/multiverse_analysis.ipynb)
+All the code can be run using Colab:[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://github.com/Mind-the-Pineapple/into-the-multiverse/blob/master/notebooks/multiverse_analysis.ipynb)
 
 ## Citation
 If you find this code useful, please cite:
