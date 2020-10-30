@@ -4,23 +4,9 @@ Code for the paper "Neuroimaging: Into the multiverse".
 ![Image](figures/overview_analysis.png)
 
 ## Abstract
-For most neuroimaging questions, there exist a huge range of analysis decisions
-that need to be made: any single analysis approach considered in isolation may
-lead to misleadingly specific interpretations or may be sub-optimal for the
-data. One response is to perform a multiverse analysis, evaluating all possible
-analysis decisions; however, this will be computationally challenging and the
-repeated sequential analyses on the same data will compromise inferential and
-predictive power. Here, we demonstrate how using active learning on a
-low-dimensional space that captures the inter-relationships between analysis
-approaches, can be used to approximate the whole multiverse of analyses, while
-only sparsely sampling the space. This allows for the benefits of the multiverse
-analysis while limiting statistical and computational challenges. We illustrate
-the approach with a functional MRI dataset of functional connectivity across
-adolescence; we show how a multiverse of graph theoretic and simple
-pre-processing steps can be efficiently navigated using active learning,
-simultaneously finding the subset of analysis approaches which can be used to
-strongly predict participants’ ages as well as approximating how all of the
-analysis approaches perform.
+<p align="justify">
+For most neuroimaging questions the huge range of possible analytic choices leads to the possibility that conclusions from any single analytic approach may be misleading. Examples of possible choices include the motion regression approach used and smoothing and threshold factors applied during the processing pipeline. Although it is possible to perform a multiverse analysis that evaluates all possible analytic choices, this can be computationally challenging and repeated sequential analyses on the same data can compromise inferential and predictive power. Here, we establish how active learning on a low-dimensional space that captures the inter-relationships between analysis approaches can be used to efficiently approximate the whole multiverse of analyses. This approach balances the benefits of a multiverse analysis without the accompanying cost to statistical power, computational power and the integrity of inferences. We illustrate this approach with a functional MRI dataset of functional connectivity across adolescence, demonstrating how a multiverse of graph theoretic and simple pre-processing steps can be efficiently navigated using active learning. Our study shows how this approach can identify the subset of analysis techniques (i.e., pipelines) which are best able to predict participants’ ages, as well as allowing the performance of different approaches to be quantified.
+</p>
 
 ## Run the code
 All the code can be run using Colab: [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Mind-the-Pineapple/into-the-multiverse/blob/master/notebooks/multiverse_analysis.ipynb)
