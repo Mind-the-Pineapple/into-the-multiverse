@@ -23,8 +23,11 @@ strongly predict participants’ ages as well as approximating how all of the
 analysis approaches perform.
 
 ## Run the code
-All the code can be run using Colab:[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://github.com/Mind-the-Pineapple/into-the-multiverse/blob/master/notebooks/multiverse_analysis.ipynb)
+All the code can be run using Colab: [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Mind-the-Pineapple/into-the-multiverse/blob/master/notebooks/multiverse_analysis.ipynb)
 
 ## Citation
-If you find this code useful, please cite:
+If you find this code useful, please cite: 
+
+**Neuroimaging: Into the Multiverse,** 
+*Jessica Dafflon, Pedro F. Da Costa, František Váša, Ricardo Pio Monti, Danilo Bzdok, Peter J. Hellyer, Federico Turkheimer, Jonathan Smallwood, Emily Jones, Robert Leech,* bioRxiv 2020.10.29.359778; doi: [https://doi.org/10.1101/2020.10.29.359778](https://www.biorxiv.org/content/10.1101/2020.10.29.359778v1)
 
