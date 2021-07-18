@@ -1,22 +1,26 @@
 from itertools import product
+import json
 
 import numpy as np
+import pandas as pd
 from sklearn.neighbors import kneighbors_graph
-from sklearn.gaussian_process import GaussianProcessRegressor
 import matplotlib.pyplot as plt
 from matplotlib import cm
 import bct
-from sklearn.svm import SVR, SVC
-from sklearn.model_selection import cross_val_score
+from sklearn.svm import SVR
 from sklearn.neighbors import NearestNeighbors
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import KFold, GridSearchCV
+from sklearn.model_selection import KFold
 from sklearn.gaussian_process.kernels import Matern, WhiteKernel
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.pipeline import Pipeline
+from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import StratifiedKFold
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
 from scipy.stats import hypergeom, spearmanr
 from bayes_opt import BayesianOptimization
 from bayes_opt import UtilityFunction
+from nilearn.connectome import ConnectivityMeasure
 from tqdm import tqdm
 
 # Set the random seed
@@ -183,8 +187,8 @@ def get_null_distribution(N, n_neighbors_step):
     return null_distribution
 
 
-def objectiveFunc(TempModelNum, Y, Sparsities_Run, Data_Run, BCT_models, BCT_Run,
-                  CommunityIDs, data1, data2, svr_params):
+def objective_func_reg(TempModelNum, Y, Sparsities_Run, Data_Run, BCT_models, BCT_Run,
+                  CommunityIDs, data1, data2):
     '''
 
     Define the objective function for the Bayesian optimization.  This consists
@@ -268,6 +272,45 @@ def objectiveFunc(TempModelNum, Y, Sparsities_Run, Data_Run, BCT_models, BCT_Run
     # Note: the scores were divided by 10 in order to keep the values close
     # to 0 for avoiding problems with the Bayesian Optimisation
     # Load the pre-trained model
+    score = scores.mean()/10
+    return score
+
+
+def objective_func_class(data_run, TempModelNum, Y, files_id, data_root, output_path):
+    '''
+        Similar to previous
+        TODO: need to merge it with the other code
+        ClassOrRegress:Define if it is a classification or regression problem
+        (0: classification; 1 regression)
+    '''
+    TotalSubjects = len(Y)
+    TempResults = []
+    pipeline = data_run[TempModelNum][1]
+    strategy = data_run[TempModelNum][2]
+    derivative = data_run[TempModelNum][0]
+    data_path = data_root / 'Outputs' / pipeline / strategy / derivative
+    # Load the data for every subject.
+    for file_id in files_id:
+        subject_path = data_path / f'{file_id}_{derivative}.1D'
+        rois = pd.read_csv(subject_path, delimiter='\t')
+        TempResults.append(rois.to_numpy())
+    # Calculate the correlation using the selected meatric
+    correlation_measure = ConnectivityMeasure(kind=data_run[TempModelNum][3])
+    correlation_matrix = correlation_measure.fit_transform(TempResults)
+    # Use only the lower diagonal matrix
+    lower_diag_n = int(rois.shape[1] * (rois.shape[1] - 1)/2)
+    rois_l = np.zeros((TotalSubjects, lower_diag_n))
+    for subject in range(TotalSubjects):
+        rois_l[subject, :] = correlation_matrix[subject, :, :][np.triu_indices(rois.shape[1], k=1)]
+
+    # Make predictions
+    #RandInt = np.random.randint(10000)
+    model = Pipeline([('scaler', StandardScaler()), ('reg', LogisticRegression(penalty='l2', random_state=0))])
+    cv = StratifiedKFold(n_splits=10, shuffle=True, random_state=0)
+    scores = cross_val_score(model, rois_l, Y, cv=cv,
+                             scoring='roc_auc')
+    # Note: the scores were divided by 10 in order to keep the values close
+    # to 0 for avoiding problems with the Bayesian Optimisation
     score = scores.mean()/10
     return score
 
@@ -381,7 +424,7 @@ def initialize_bo(ModelEmbedding, kappa, repetitions=False, DiffInit=None):
     np.random.seed(RandomSeed)
 
     # Define the kernel: white noise kernel plus Mattern
-    kernel = 1.0 * Matern(length_scale=25, length_scale_bounds=(10,80),nu=2.5) \
+    kernel = 1.0 * Matern(length_scale=25, length_scale_bounds=(10,80), nu=2.5) \
         + WhiteKernel(noise_level=0.1, noise_level_bounds=(1e-10, 0.1))
 
     # Define bounds
@@ -418,10 +461,9 @@ def initialize_bo(ModelEmbedding, kappa, repetitions=False, DiffInit=None):
     return kernel, optimizer, utility, init_points, n_iter, pbounds, nbrs, \
            RandomSeed
 
-def run_bo(kernel, optimizer, utility, init_points, n_iter,
-           pbounds, nbrs, RandomSeed, ModelEmbedding, BCT_models,
-           BCT_Run, Sparsities_Run, Data_Run, Ages, CommunityIDs,
-           data1, data2, ClassOrRegress, MultivariateUnivariate=True,
+def run_bo(optimizer, utility, init_points, n_iter,
+           pbounds, nbrs, RandomSeed, ModelEmbedding, model_config,
+           Y, ClassOrRegress, MultivariateUnivariate=True,
            repetitions=False, verbose=True):
 
     BadIters = np.empty(0)
@@ -470,18 +512,22 @@ def run_bo(kernel, optimizer, utility, init_points, n_iter,
             Distance=distances[0][0]
 
         if (Distance <10 or Iter<init_points):
-            #Hack: because space is continuous but analysis approaches aren't,
+            # Hack: because space is continuous but analysis approaches aren't,
             # we penalize points that are far (>10 distance in model space)
-            #from any actual analysis approaches by assigning them the value of
+            # from any actual analysis approaches by assigning them the value of
             # the worst performing approach in the burn-in
             LastModel = TempModelNum
             BadIters = np.append(BadIters,0)
             # Call the objective function and evaluate the model/pipeline
             if MultivariateUnivariate:
-                target = objectiveFunc(TempModelNum, Ages, Sparsities_Run,
-                                       Data_Run, BCT_models, BCT_Run,
-                                       CommunityIDs, data1, data2,
-                                       ClassOrRegress)
+                if ClassOrRegress == 'Regression':
+                    target = objective_func_reg(TempModelNum, Y, model_config['Sparsities_Run'],
+                                                model_config['Data_Run'], model_config['BCT_models'],
+                                                model_config['BCT_Run'], model_config['CommunityIDs'],
+                                                model_config['data1'], model_config['data2'])
+                elif ClassOrRegress == 'Classification':
+                    target = objective_func_class(model_config['Data_Run'], TempModelNum, Y, model_config['files_id'],
+                                                  model_config['data_root'], model_config['output_path'])
                 if verbose:
                     print("Next Iteration")
                     print(Iter)
@@ -499,14 +545,14 @@ def run_bo(kernel, optimizer, utility, init_points, n_iter,
                 pbar.update(1)
         else:
             newlist = sorted(optimizer.res, key=lambda k: k['target'])
-            target=newlist[0]['target']
+            target = newlist[0]['target']
             LastModel = -1
 
             if verbose:
                 print("Next Iteration")
                 print(Iter)
                 # print("Model Num %d " % TempModelNum)
-    #            print('Print indices: %d  %d' % (indices[0][0], indices[0][1]))
+                # print('Print indices: %d  %d' % (indices[0][0], indices[0][1]))
                 print(Distance)
                 print("Target Function Default Bad: %.4f" % (target))
                 print(' ')
@@ -526,7 +572,7 @@ def run_bo(kernel, optimizer, utility, init_points, n_iter,
 
 
 def plot_bo_estimated_space(kappa, BadIter, optimizer, pbounds, ModelEmbedding,
-                        PredictedAcc, kernel, output_path):
+                        PredictedAcc, kernel, output_path, ClassOrRegression):
     x = np.linspace(pbounds['b1'][0] - 10, pbounds['b1'][1] + 10, 500).reshape(
     -1, 1)
     y = np.linspace(pbounds['b2'][0] - 10, pbounds['b2'][1] + 10, 500).reshape(
@@ -571,8 +617,9 @@ def plot_bo_estimated_space(kappa, BadIter, optimizer, pbounds, ModelEmbedding,
     ax = ax1
     pcm = ax.pcolormesh(X0p, X1p, Zmu, vmax=vmax, vmin=vmin, cmap=cm[0],
                         rasterized=True)
-    ax.set_xlim(-50, 50)
-    ax.set_ylim(-50, 50)
+    if ClassOrRegression == 'Regression':
+        ax.set_xlim(-50, 50)
+        ax.set_ylim(-50, 50)
     ax.set_aspect('equal', 'box')
     ax = ax2
     pcm = ax.scatter(ModelEmbedding[0:PredictedAcc.shape[0],0],
@@ -582,8 +629,9 @@ def plot_bo_estimated_space(kappa, BadIter, optimizer, pbounds, ModelEmbedding,
     ax.set_aspect('equal', 'box')
 
     fig.tight_layout()
-    ax.set_xlim(-50, 50)
-    ax.set_ylim(-50, 50)
+    if ClassOrRegression == 'Regression':
+        ax.set_xlim(-50, 50)
+        ax.set_ylim(-50, 50)
     fig.subplots_adjust(right=0.8)
     cbar_ax = fig.add_axes([0.825, 0.35, 0.02, 0.3])
     fig.colorbar(pcm, cax=cbar_ax)
@@ -597,7 +645,7 @@ def plot_bo_estimated_space(kappa, BadIter, optimizer, pbounds, ModelEmbedding,
 # Save the results in a pickle
 
 def plot_bo_evolution(kappa, x_obs, y_obs, z_obs, x, y, gp, vmax, vmin,
-                      ModelEmbedding, PredictedAcc, output_path):
+                      ModelEmbedding, PredictedAcc, output_path, ClassOrRegression):
     fig, axs = plt.subplots(5, 3, figsize=(12,18))
     n_samples = [5,10,20,30,50]
     cm = ['coolwarm', 'seismic']
@@ -627,15 +675,17 @@ def plot_bo_evolution(kappa, x_obs, y_obs, z_obs, x, y, gp, vmax, vmin,
         pcm = ax.pcolormesh(X0p, X1p, Zmu,vmax=vmax, vmin=vmin,
                 cmap=cm[0],rasterized=True)
         ax.set_aspect('equal', 'box')
-        ax.set_xlim(-50, 50)
-        ax.set_ylim(-50, 50)
+        if ClassOrRegression == 'Regression':
+            ax.set_xlim(-50, 50)
+            ax.set_ylim(-50, 50)
         ax = axs[idx,1]
 
         pcm = ax.pcolormesh(X0p, X1p, Zsigma,cmap=cm[1],rasterized=True)#,vmax=vmax,vmin=vmin)
         ax.set_title("Iterations: %i" % (NumSamplesToInclude),fontsize=15,fontweight="bold")
         ax.set_aspect('equal', 'box')
-        ax.set_xlim(-50, 50)
-        ax.set_ylim(-50, 50)
+        if ClassOrRegression == 'Regression':
+            ax.set_xlim(-50, 50)
+            ax.set_ylim(-50, 50)
 
         ax = axs[idx,2]
         # For visualisation purposes
@@ -645,8 +695,9 @@ def plot_bo_evolution(kappa, x_obs, y_obs, z_obs, x, y, gp, vmax, vmin,
                        marker='.', c='gray')
         ax.set_xlim(PredictedAcc.max(), PredictedAcc.min())
         ax.set_ylim(PredictedAcc.max(), PredictedAcc.min())
-        #ax.set_xlim(-2.55, -2.25)
-        #ax.set_ylim(-2.55, -2.25)
+        if ClassOrRegression == 'Regression':
+            ax.set_xlim(-2.55, -2.25)
+            ax.set_ylim(-2.55, -2.25)
         ax.set_aspect('equal', 'box')
 
     fig.savefig(str(output_path / f'BOptEvolutionK{kappa}.svg'),format='svg',dpi=300)
@@ -679,7 +730,7 @@ def analysis_space(BCT_Num, BCT_models, x, KeptYeoIDs):
 
 def plot_bo_repetions(ModelEmbedding, PredictedAcc, BestModelGPSpaceModIndex,
                       BestModelEmpiricalModIndex, BestModelEmpirical,
-                      ModelActualAccuracyCorrelation, output_path):
+                      ModelActualAccuracyCorrelation, output_path, ClassOrRegression):
     # displaying results of 20 iterations
 
     fig8 = plt.figure(constrained_layout=False,figsize=(18,6))
@@ -693,8 +744,9 @@ def plot_bo_repetions(ModelEmbedding, PredictedAcc, BestModelGPSpaceModIndex,
     ax1.scatter(ModelEmbedding[BestModelGPSpaceModIndex.astype(int)][:,0],
                 ModelEmbedding[BestModelGPSpaceModIndex.astype(int)][:,1],s=120,c='black')
 
-    ax1.set_xlim(-50, 50)
-    ax1.set_ylim(-50, 50)
+    if ClassOrRegression == 'Regression':
+        ax1.set_xlim(-50, 50)
+        ax1.set_ylim(-50, 50)
 
     ax2 = fig8.add_subplot(gs1[:,7:13])
     ax2.set_title('Empirical optima: 20 iterations',fontsize=15,fontweight="bold")
@@ -705,8 +757,9 @@ def plot_bo_repetions(ModelEmbedding, PredictedAcc, BestModelGPSpaceModIndex,
                 ModelEmbedding[BestModelEmpiricalModIndex.astype(int)][:,1],
                 c='black', s=120)
 
-    ax2.set_xlim(-50, 50)
-    ax2.set_ylim(-50, 50)
+    if ClassOrRegression == 'Regression':
+        ax2.set_xlim(-50, 50)
+        ax2.set_ylim(-50, 50)
 
     ax3 = fig8.add_subplot(gs1[:, 14:16])
     ax3.violinplot([PredictedAcc*10, BestModelEmpirical*10])
@@ -721,3 +774,17 @@ def plot_bo_repetions(ModelEmbedding, PredictedAcc, BestModelGPSpaceModIndex,
 
     fig8.savefig(str(output_path / 'BOpt20Repeats.png'),dpi=300)
     fig8.savefig(str(output_path / 'BOpt20Repeats.svg'),format="svg")
+
+
+def load_abide_demographics(data_root):
+    # Load demographics.
+    abide_df = pd.read_csv(str(data_root / 'Phenotypic_V1_0b_preprocessed1_cleaned.csv'), header=0, index_col=3)
+    missing_subs = ['USM_0050493', 'KKI_0050800']
+    drop_idx = []
+    for sub in missing_subs:
+        sub_idx = abide_df[abide_df['FILE_ID'] == sub].index.tolist()
+        if sub_idx:
+            drop_idx.append(sub_idx[0])
+    abide_df = abide_df.drop(drop_idx)
+    return abide_df
+
