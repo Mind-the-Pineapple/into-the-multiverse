@@ -1,4 +1,4 @@
-scikit-learn
+scikit-learn==0.24.1
 pandas==1.0.5
 sklearn_rvm
 plotly==4.9.0
@@ -9,3 +9,6 @@ matplotlib==3.3.0
 numpy==1.19.1
 bayesian-optimization==1.2.0
 umap-learn==0.4.6
+phate==1.0.7
+nilearn==0.7.0
+nibabel==3.2.1
