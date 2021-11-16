@@ -22,6 +22,8 @@ from bayes_opt import BayesianOptimization
 from bayes_opt import UtilityFunction
 from nilearn.connectome import ConnectivityMeasure
 from tqdm import tqdm
+from sklearn.metrics import mean_absolute_error
+from sklearn.model_selection import train_test_split
 
 # Set the random seed
 np.random.seed(2)
@@ -188,7 +190,7 @@ def get_null_distribution(N, n_neighbors_step):
 
 
 def objective_func_reg(TempModelNum, Y, Sparsities_Run, Data_Run, BCT_models, BCT_Run,
-                  CommunityIDs, data1, data2):
+                  CommunityIDs, MainNoNan, GSRNoNan):
     '''
 
     Define the objective function for the Bayesian optimization.  This consists
@@ -220,9 +222,9 @@ def objective_func_reg(TempModelNum, Y, Sparsities_Run, Data_Run, BCT_models, BC
 
     TotalRegions = 346
     if Data_Run[TempModelNum] == 'MRS':
-        TempData = data1
+        TempData = MainNoNan
     elif Data_Run[TempModelNum] == 'GRS':
-        TempData = data2
+        TempData = GSRNoNan
     else:
         ValueError('This type of pre-processing is not supported')
     TotalSubjects = TempData.shape[2]
@@ -262,18 +264,16 @@ def objective_func_reg(TempModelNum, Y, Sparsities_Run, Data_Run, BCT_models, BC
         #For each subject for each approach keep the 346 regional values.
         TempResults[SubNum, :] = ss
 
-    RandInt = np.random.randint(10000)
-    #svr_c = svr_params[TempModelNum]['svr__C']
+    X_train, X_test, y_train, y_test = train_test_split(TempResults, Y.ravel(),
+        test_size=.3, random_state=0)
     model = Pipeline([('scaler', StandardScaler()), ('svr', SVR())])
-    cv = KFold(n_splits=10, shuffle=True, random_state=RandInt)
-    scores = cross_val_score(model, TempResults, Y.ravel(), cv=cv,
-                             scoring='neg_mean_absolute_error')
+    model.fit(X_train, y_train)
+    pred = model.predict(X_test)
 
     # Note: the scores were divided by 10 in order to keep the values close
     # to 0 for avoiding problems with the Bayesian Optimisation
-    # Load the pre-trained model
-    score = scores.mean()/10
-    return score
+    scores = - mean_absolute_error(y_test, pred)/10
+    return scores
 
 
 def objective_func_class(data_run, TempModelNum, Y, files_id, data_root, output_path):
@@ -414,6 +414,7 @@ def display_gp_mean_uncertainty(kernel, optimizer, pbounds, BadIter):
 
     return gp
 
+
 def initialize_bo(ModelEmbedding, kappa, repetitions=False, DiffInit=None):
     """
     """
@@ -460,6 +461,7 @@ def initialize_bo(ModelEmbedding, kappa, repetitions=False, DiffInit=None):
                             n_restarts_optimizer=10)
     return kernel, optimizer, utility, init_points, n_iter, pbounds, nbrs, \
            RandomSeed
+
 
 def run_bo(optimizer, utility, init_points, n_iter,
            pbounds, nbrs, RandomSeed, ModelEmbedding, model_config,
@@ -524,7 +526,8 @@ def run_bo(optimizer, utility, init_points, n_iter,
                     target = objective_func_reg(TempModelNum, Y, model_config['Sparsities_Run'],
                                                 model_config['Data_Run'], model_config['BCT_models'],
                                                 model_config['BCT_Run'], model_config['CommunityIDs'],
-                                                model_config['data1'], model_config['data2'])
+                                                model_config['MainNoNanPrediction'],
+                                                model_config['GSRNoNanPrediction'])
                 elif ClassOrRegress == 'Classification':
                     target = objective_func_class(model_config['Data_Run'], TempModelNum, Y, model_config['files_id'],
                                                   model_config['data_root'], model_config['output_path'])
@@ -641,8 +644,6 @@ def plot_bo_estimated_space(kappa, BadIter, optimizer, pbounds, ModelEmbedding,
 
     return x_obs, y_obs, z_obs, x, y, gp, vmax, vmin
 
-# TODO: Check if ModelDict has the same pipeline as fitted_model
-# Save the results in a pickle
 
 def plot_bo_evolution(kappa, x_obs, y_obs, z_obs, x, y, gp, vmax, vmin,
                       ModelEmbedding, PredictedAcc, output_path, ClassOrRegression):
@@ -727,6 +728,7 @@ def analysis_space(BCT_Num, BCT_models, x, KeptYeoIDs):
     else:
         ss = BCT_models[BCT_Num](x)
     return ss
+
 
 def plot_bo_repetions(ModelEmbedding, PredictedAcc, BestModelGPSpaceModIndex,
                       BestModelEmpiricalModIndex, BestModelEmpirical,
