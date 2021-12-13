@@ -23,6 +23,7 @@ from bayes_opt import UtilityFunction
 from nilearn.connectome import ConnectivityMeasure
 from tqdm import tqdm
 from sklearn.metrics import mean_absolute_error
+from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 
 # Set the random seed
@@ -306,12 +307,14 @@ def objective_func_class(data_run, TempModelNum, Y, files_id, data_root, output_
     # Make predictions
     #RandInt = np.random.randint(10000)
     model = Pipeline([('scaler', StandardScaler()), ('reg', LogisticRegression(penalty='l2', random_state=0))])
-    cv = StratifiedKFold(n_splits=10, shuffle=True, random_state=0)
-    scores = cross_val_score(model, rois_l, Y, cv=cv,
-                             scoring='roc_auc')
-    # Note: the scores were divided by 10 in order to keep the values close
-    # to 0 for avoiding problems with the Bayesian Optimisation
-    score = scores.mean()/10
+
+    X_train, X_test, y_train, y_test = train_test_split(rois_l, Y.ravel(),
+        test_size=.3, random_state=0)
+    model.fit(X_train, y_train)
+    pred = model.predict(X_test)
+    y_proba = model.predict_proba(X_test)[:, 1]
+    score = roc_auc_score(y_test, y_proba)
+
     return score
 
 
@@ -511,7 +514,7 @@ def run_bo(optimizer, utility, init_points, n_iter,
         else:
             TempModelNum = np.asscalar(indices[0][0])
             ActualLocation = ModelEmbedding[np.asscalar(indices[0][0])]
-            Distance=distances[0][0]
+            Distance = distances[0][0]
 
         if (Distance <10 or Iter<init_points):
             # Hack: because space is continuous but analysis approaches aren't,
@@ -610,7 +613,6 @@ def plot_bo_estimated_space(kappa, BadIter, optimizer, pbounds, ModelEmbedding,
     font_dict_title = {'fontsize': 25}
     font_dict_label = {'fontsize': 15}
     font_dict_label3 = {'fontsize': 15}
-    #print(x_obs.shape)
     vmax = Zmu.max()
     vmin = Zmu.min()
 
@@ -623,12 +625,20 @@ def plot_bo_estimated_space(kappa, BadIter, optimizer, pbounds, ModelEmbedding,
     if ClassOrRegression == 'Regression':
         ax.set_xlim(-50, 50)
         ax.set_ylim(-50, 50)
+
     ax.set_aspect('equal', 'box')
     ax = ax2
-    pcm = ax.scatter(ModelEmbedding[0:PredictedAcc.shape[0],0],
-                     ModelEmbedding[0:PredictedAcc.shape[0],1],
-                     c=PredictedAcc*10, vmax=vmax*10, vmin=vmin*10,
-                     cmap=cm[0], rasterized=True)
+    if ClassOrRegression == 'Regression':
+        pcm = ax.scatter(ModelEmbedding[0:PredictedAcc.shape[0],0],
+                         ModelEmbedding[0:PredictedAcc.shape[0],1],
+                         c=PredictedAcc, vmax=vmax*10, vmin=vmin*10,
+                         cmap=cm[0], rasterized=True)
+    else:
+        pcm = ax.scatter(ModelEmbedding[0:PredictedAcc.shape[0],0],
+                         ModelEmbedding[0:PredictedAcc.shape[0],1],
+                         c=PredictedAcc, vmax=vmax, vmin=vmin,
+                         cmap=cm[0], rasterized=True)
+
     ax.set_aspect('equal', 'box')
 
     fig.tight_layout()
@@ -648,9 +658,9 @@ def plot_bo_estimated_space(kappa, BadIter, optimizer, pbounds, ModelEmbedding,
 def plot_bo_evolution(kappa, x_obs, y_obs, z_obs, x, y, gp, vmax, vmin,
                       ModelEmbedding, PredictedAcc, output_path, ClassOrRegression):
     fig, axs = plt.subplots(5, 3, figsize=(12,18))
-    n_samples = [5,10,20,30,50]
+    n_samples = [5, 10, 20, 30, 50]
     cm = ['coolwarm', 'seismic']
-    PredictedAcc = PredictedAcc * 10
+
     for idx, NumSamplesToInclude in enumerate(n_samples):
 
         x1x2 = np.array(list(product(x, y)))
@@ -658,11 +668,12 @@ def plot_bo_evolution(kappa, x_obs, y_obs, z_obs, x, y, gp, vmax, vmin,
         mu, sigma, gp = posterior(gp, x_obs[0:NumSamplesToInclude],
                                    y_obs[0:NumSamplesToInclude],
                                    z_obs[0:NumSamplesToInclude], x1x2)
-        muModEmb,sigmaModEmb,gpModEmb = posteriorOnlyModels(gp,
-                                                          x_obs[0:NumSamplesToInclude],
-                                                          y_obs[0:NumSamplesToInclude],
-                                                          z_obs[0:NumSamplesToInclude],
-                                                          ModelEmbedding)
+
+        muModEmb, sigmaModEmb, gpModEmb = posteriorOnlyModels(gp,
+                                                  x_obs[0:NumSamplesToInclude],
+                                                  y_obs[0:NumSamplesToInclude],
+                                                  z_obs[0:NumSamplesToInclude],
+                                                  ModelEmbedding)
         Zmu = np.reshape(mu, (500, 500))
         Zsigma = np.reshape(sigma, (500, 500))
 
@@ -671,18 +682,18 @@ def plot_bo_evolution(kappa, x_obs, y_obs, z_obs, x, y, gp, vmax, vmin,
 
         X0p, X1p = np.meshgrid(x, y, indexing='ij')
 
-        ax = axs[idx,0]
-
-        pcm = ax.pcolormesh(X0p, X1p, Zmu,vmax=vmax, vmin=vmin,
+        ax = axs[idx, 0]
+        pcm = ax.pcolormesh(X0p, X1p, Zmu, vmax=vmax, vmin=vmin,
                 cmap=cm[0],rasterized=True)
         ax.set_aspect('equal', 'box')
         if ClassOrRegression == 'Regression':
             ax.set_xlim(-50, 50)
             ax.set_ylim(-50, 50)
-        ax = axs[idx,1]
 
+        ax = axs[idx,1]
         pcm = ax.pcolormesh(X0p, X1p, Zsigma,cmap=cm[1],rasterized=True)#,vmax=vmax,vmin=vmin)
-        ax.set_title("Iterations: %i" % (NumSamplesToInclude),fontsize=15,fontweight="bold")
+        ax.set_title("Iterations: %i" % (NumSamplesToInclude), fontsize=15,
+                     fontweight="bold")
         ax.set_aspect('equal', 'box')
         if ClassOrRegression == 'Regression':
             ax.set_xlim(-50, 50)
@@ -690,15 +701,16 @@ def plot_bo_evolution(kappa, x_obs, y_obs, z_obs, x, y, gp, vmax, vmin,
 
         ax = axs[idx,2]
         # For visualisation purposes
-        muModEmb = muModEmb * 10
+        if ClassOrRegression == 'Regression':
+            ax.set_xlim(-2.55, -2.25)
+            ax.set_ylim(-2.55, -2.25)
+            muModEmb = muModEmb * 10
+
         pcm=ax.scatter(muModEmb[PredictedAcc!=PredictedAcc.min()],
                        PredictedAcc[PredictedAcc!=PredictedAcc.min()],
                        marker='.', c='gray')
         ax.set_xlim(PredictedAcc.max(), PredictedAcc.min())
         ax.set_ylim(PredictedAcc.max(), PredictedAcc.min())
-        if ClassOrRegression == 'Regression':
-            ax.set_xlim(-2.55, -2.25)
-            ax.set_ylim(-2.55, -2.25)
         ax.set_aspect('equal', 'box')
 
     fig.savefig(str(output_path / f'BOptEvolutionK{kappa}.svg'),format='svg',dpi=300)
@@ -734,7 +746,9 @@ def plot_bo_repetions(ModelEmbedding, PredictedAcc, BestModelGPSpaceModIndex,
                       BestModelEmpiricalModIndex, BestModelEmpirical,
                       ModelActualAccuracyCorrelation, output_path, ClassOrRegression):
     # displaying results of 20 iterations
-
+    if ClassOrRegression == 'Regression':
+        PredictedAcc = PredictedAcc * 10
+        BestModelEmpirical = BestModelEmpirical * 10
     fig8 = plt.figure(constrained_layout=False,figsize=(18,6))
     gs1 = fig8.add_gridspec(nrows=6, ncols=18)
     ax1 = fig8.add_subplot(gs1[:,0:6])
@@ -742,7 +756,7 @@ def plot_bo_repetions(ModelEmbedding, PredictedAcc, BestModelGPSpaceModIndex,
             fontweight="bold")
     ax1.scatter(ModelEmbedding[0:PredictedAcc.shape[0],0],
                 ModelEmbedding[0:PredictedAcc.shape[0],1],
-                c=PredictedAcc*10,cmap='coolwarm',alpha=0.2,s=120)#vmax=vmax,vmin=vmin,
+                c=PredictedAcc,cmap='coolwarm',alpha=0.2,s=120)#vmax=vmax,vmin=vmin,
     ax1.scatter(ModelEmbedding[BestModelGPSpaceModIndex.astype(int)][:,0],
                 ModelEmbedding[BestModelGPSpaceModIndex.astype(int)][:,1],s=120,c='black')
 
@@ -754,7 +768,7 @@ def plot_bo_repetions(ModelEmbedding, PredictedAcc, BestModelGPSpaceModIndex,
     ax2.set_title('Empirical optima: 20 iterations',fontsize=15,fontweight="bold")
     ax2.scatter(ModelEmbedding[0:PredictedAcc.shape[0],0],
                 ModelEmbedding[0:PredictedAcc.shape[0],1],
-                c=PredictedAcc*10,cmap='coolwarm',s=120,alpha=0.2)#vmax=vmax,vmin=vmin,
+                c=PredictedAcc,cmap='coolwarm',s=120,alpha=0.2)#vmax=vmax,vmin=vmin,
     ax2.scatter(ModelEmbedding[BestModelEmpiricalModIndex.astype(int)][:,0],
                 ModelEmbedding[BestModelEmpiricalModIndex.astype(int)][:,1],
                 c='black', s=120)
@@ -764,7 +778,7 @@ def plot_bo_repetions(ModelEmbedding, PredictedAcc, BestModelGPSpaceModIndex,
         ax2.set_ylim(-50, 50)
 
     ax3 = fig8.add_subplot(gs1[:, 14:16])
-    ax3.violinplot([PredictedAcc*10, BestModelEmpirical*10])
+    ax3.violinplot([PredictedAcc, BestModelEmpirical])
     ax3.set_xticks([1, 2])
     ax3.set_xticklabels(['Accuracy \n of all points', 'Accuracy\n of optima'],
             fontsize=9)
