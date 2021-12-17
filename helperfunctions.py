@@ -714,8 +714,13 @@ def plot_bo_evolution(kappa, x_obs, y_obs, z_obs, x, y, gp, vmax, vmin,
         pcm=ax.scatter(muModEmb[PredictedAcc!=PredictedAcc.min()],
                        PredictedAcc[PredictedAcc!=PredictedAcc.min()],
                        marker='.', c='gray')
-        ax.set_xlim(PredictedAcc.max(), PredictedAcc.min())
-        ax.set_ylim(PredictedAcc.max(), PredictedAcc.min())
+        if ClassOrRegression == 'Regression':
+            ax.set_xlim(PredictedAcc.max(), PredictedAcc.min())
+            ax.set_ylim(PredictedAcc.max(), PredictedAcc.min())
+        elif ClassOrRegression == 'Classification':
+            ax.set_xlim(PredictedAcc.min(), PredictedAcc.max())
+            ax.set_ylim(PredictedAcc.min(), PredictedAcc.max())
+
         ax.set_aspect('equal', 'box')
 
     fig.savefig(str(output_path / f'BOptEvolutionK{kappa}.svg'),format='svg',dpi=300)

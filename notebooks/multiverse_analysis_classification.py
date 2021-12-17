@@ -1,19 +1,61 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+# This notebook runs the classification analysis using the ABIDE dataset.
+# 
+# The data for this analysis should be downloaded from http://preprocessed-connectomes-project.org/abide/download.html before running this notebook. Because downloading the dataset might take a few hours, we recommend downloading the data locally. 
+# 
+# Similarly to the regression analysis, we have provided together with the gitrepository the intermediate steps of this analysis. Therefore, the researcher interested in replicating parts of this notebook can skip the most time consuming steps and run only specific sections. 
+
 # # 1. Setting up the enviroment
 
 # In[ ]:
 
 
-# Install necessary python dependencies
+# Install necessary python dependencies. Only necessary if the dependencies have not been previously installed.
+# If you are running this notebook locally make sure you have a virtual environment and are running this notebook
+# from inside the virtual environment. 
 get_ipython().system(' pip install -r requirements.txt')
 
 
-# In[26]:
+# In[ ]:
 
 
+# Define key variables
+# Add the into-the-multiverse folder to the Python path. This allows the helperfunction
+# to be used
+import sys
+sys.path.insert(1, 'into-the-multiverse')
+
+import numpy as np
+np.random.seed(1234)
+
+import warnings
+warnings.filterwarnings("ignore")
 from pathlib import Path
+import os
+
+
+# In[ ]:
+
+
+# Set up the local paths accordingly
+# ----------------------------------------
+# All paths are expected to be Path objects
+# Specifiy the location of the code
+path_to_project = Path.home() / 'Code'/ 'into-the-multiverse'
+os.chdir(path_to_project)
+PROJECT_ROOT = Path.cwd()
+# Specify the path to where the data has been downloaded
+data_root = Path('/Volumes/abide')
+output_path = PROJECT_ROOT / 'output' / 'abide'
+if not output_path.is_dir():
+    output_path.mkdir(parents=True)
+
+
+# In[ ]:
+
+
 from collections import OrderedDict
 import pickle
 import json
@@ -46,33 +88,8 @@ from helperfunctions import (initialize_bo, run_bo, load_abide_demographics, plo
 get_ipython().run_line_magic('load_ext', 'autoreload')
 get_ipython().run_line_magic('autoreload', '2')
 
-# Define key variables
-# Add the into-the-multiverse folder to the Python path. This allows the helperfunction
-# to be used
-import sys
-sys.path.insert(1, 'into-the-multiverse')
-import numpy as np
-np.random.seed(1234)
-from pathlib import Path
-import os
-
 
 # In[ ]:
-
-
-# Define paths - REMOTE
-PROJECT_ROOT = Path.cwd()
-data_path = PROJECT_ROOT / 'into-the-multiverse' /'data' / 'abide'
-output_path = PROJECT_ROOT / 'into-the-multiverse' / 'output'/ 'abide'
-
-# Change accordingly to where the raw data has been downloaded. The data can be downloaded from
-# (http://preprocessed-connectomes-project.org/abide/download.html is downloaded
-data_raw = Path('/Volumes/abide')
-if not output_path.is_dir():
-    output_path.mkdir(parents=True)
-
-
-# In[2]:
 
 
 # Define the space variables
@@ -111,11 +128,12 @@ conn_metrics = ['tangent', 'correlation', 'partial correlation', 'covariance']
 # 
 # However, to facilitate reproducibility together with this code. We are providing the file `output/abide/abide_space.pckl`, which contains the output from the next cell. 
 
-# In[3]:
+# In[ ]:
 
 
 # select the subjects we want to use to create the space (about 20% of the total subjects) making sure that
-# both classes are equally represented
+# both classes are equally represented. Uuse the remaining 80% for the active learning step and as a holdout
+# dataset to evaluate the performance of the active learning step.
 
 # Load data demographics
 abide_df = load_abide_demographics(data_root)
@@ -147,7 +165,7 @@ with open((output_path / f'indices_space_train.json'), 'w') as handle:
     json.dump(indices, handle)
 
 
-# The next cell will create the space
+# The next cell will create the space. This is a time consuming step and might take a few hours to run. 
 
 # In[ ]:
 
@@ -211,7 +229,7 @@ with open((output_path / 'abide_space.pckl'), 'wb') as handle:
 
 # # 3. Building and analysing the low-dimensional space
 
-# In[5]:
+# In[ ]:
 
 
 # Load the indices we want to use for the analysis
@@ -229,7 +247,7 @@ print('Numbers on space df')
 print(space_df['DX_GROUP'].value_counts())
 
 
-# In[6]:
+# In[ ]:
 
 
 with open((output_path / 'abide_space.pckl'), 'rb') as handle:
@@ -266,7 +284,7 @@ methods['PHATE'] = phate.PHATE()
 methods['PCA'] = PCA(n_components=2)
 
 
-# In[7]:
+# In[ ]:
 
 
 # Define markers for the derivatives
@@ -288,7 +306,7 @@ markers_map = {'cpac': '-', 'ccs': '/', 'dparsf': '.', 'niak': 'x'}
 pipeline_order = np.array([pip[1] for pip in methods_idx.values()])
 
 
-# In[8]:
+# In[ ]:
 
 
 selected_analysis = 'MDS'
@@ -351,7 +369,7 @@ plt.savefig(output_path / f'{selected_analysis}_v2.png',  dpi=300)
 plt.savefig(output_path / f'{selected_analysis}_v2.svg', format='svg')
 
 
-# In[9]:
+# In[ ]:
 
 
 # Plot the other methods
@@ -424,14 +442,14 @@ gsDE.savefig(str(output_path / 'dim_reduction.png'), dpi=300)
 gsDE.savefig(str(output_path / 'dim_reduction.svg'), format='svg')
 
 
-# In[10]:
+# In[ ]:
 
 
 gsDE.savefig(str(output_path / 'dim_reduction.png'), dpi=300, bbox_inches='tight')
 gsDE.savefig(str(output_path / 'dim_reduction.svg'), format='svg', bbox_inches='tight')
 
 
-# In[11]:
+# In[ ]:
 
 
 # save embeddings
@@ -458,7 +476,11 @@ with open(output_path / 'abide_space.pckl', 'rb') as handle:
 with open((output_path / f'indices_space_train.json'), 'rb') as handle:
     indices = json.load(handle)
 
-# TODO: make this more generalisable. We will use the MDS space
+
+# In[ ]:
+
+
+# We will use the MDS space
 model_embedding = embeddings['MDS']
 
 abide_df = load_abide_demographics(data_root)
@@ -470,7 +492,7 @@ files_id = train_df['FILE_ID']
 PredictedAcc = np.zeros((len(Data_Run['Results'])))
 for count in tqdm(range(len(Data_Run['Results']))):
     PredictedAcc[count] = objective_func_class(Data_Run['methods_idx'], count, train_labels, files_id,
-                                                   data_raw, output_path)
+                                                   data_root, output_path)
 
 # Dump predictions
 pickle.dump(PredictedAcc, open(str(output_path / 'predictedAcc.pckl'), 'wb'))
@@ -489,7 +511,7 @@ plt.savefig(output_path / 'Predictions.png')
 
 # # 5. Active Learning
 
-# Note: This step also requires the user to previously downalod the raw data. Due to computation limitations with colab, we are only providing the active learning without repetitions.
+# Note: This step also requires the user to have previously downloaded the raw data and specified the path to it on top of this notebook. 
 
 # In[ ]:
 
@@ -547,7 +569,7 @@ def compute_active_learning(kappa, model_config, CassOrRegression):
 kappa = 10.0
 # path to the raw data
 model_config = {}
-model_config['data_root'] = data_raw
+model_config['data_root'] = data_root
 ClassOrRegression = 'Classification'
 corr = compute_active_learning(kappa, model_config, ClassOrRegression)
 print(f'Spearman correlation {corr}')
@@ -559,7 +581,7 @@ print(f'Spearman correlation {corr}')
 kappa = .1
 # path to the raw data
 model_config = {}
-model_config['data_root'] = data_raw
+model_config['data_root'] = data_root
 ClassOrRegression = 'Classification'
 corr = compute_active_learning(kappa, model_config, ClassOrRegression)
 print(f'Spearman correlation {corr}')
@@ -567,7 +589,7 @@ print(f'Spearman correlation {corr}')
 
 # ## Repetitions
 
-# In[24]:
+# In[ ]:
 
 
 def calculate_conn(Y, files_id):
@@ -592,8 +614,11 @@ def calculate_conn(Y, files_id):
     return rois_l
 
 
-# In[21]:
+# In[ ]:
 
+
+# Load data demographics
+abide_df = load_abide_demographics(data_root)
 
 # Load the embedding results
 with open((output_path / 'embeddings.pckl'), 'rb') as handle:
@@ -624,7 +649,7 @@ model_config['data_root'] = data_root
 model_config['output_path'] = output_path
 
 
-# In[28]:
+# In[ ]:
 
 
 # Check range of predictions
@@ -634,7 +659,9 @@ print(f'Min {np.min(PredictedAcc)}')
 print(f'Mean and std {np.mean(PredictedAcc)} and {np.std(PredictedAcc)}')
 
 
-# In[29]:
+# Note the next steps might take a few hours to run.
+
+# In[ ]:
 
 
 n_repetitions = 20
@@ -708,17 +735,8 @@ df_best = df_best.set_index('repetition')
 # format the score column to a 3 digits
 df_best['score'] = df_best['score'].apply('{:.3f}'.format)
 
-repetions_results = {
-    'dataframe': df_best,
-    'BestModelGPSpaceModIndex': BestModelGPSpaceModIndex,
-    'BestModelEmpiricalIndex': BestModelEmpiricalModIndex,
-    'BestModelEmpirical': BestModelEmpirical,
-    'ModelActualAccuracyCorrelation': ModelActualAccuracyCorrelation
-}
-pickle.dump(repetions_results, open(str(output_path / "repetitions_results.p"), "wb"))
 
-
-# In[30]:
+# In[ ]:
 
 
 df_best

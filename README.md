@@ -10,7 +10,7 @@ For most neuroimaging questions the huge range of possible analytic choices lead
 
 ## Run the code
 - **Regression Analysis:** The code for the regression analysis can be run using
-  Colab: [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Mind-the-Pineapple/into-the-multiverse/blob/master/notebooks/multiverse_analysis.ipynb)
+  Colab: [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Mind-the-Pineapple/into-the-multiverse/blob/master/notebooks/multiverse_analysis_regression.ipynb)
 
 - **Classification Analysis:** The code for the classification analysis could
   also be run using Colab. However, we recommend running the analysis locally
