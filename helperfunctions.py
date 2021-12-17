@@ -631,7 +631,7 @@ def plot_bo_estimated_space(kappa, BadIter, optimizer, pbounds, ModelEmbedding,
     if ClassOrRegression == 'Regression':
         pcm = ax.scatter(ModelEmbedding[0:PredictedAcc.shape[0],0],
                          ModelEmbedding[0:PredictedAcc.shape[0],1],
-                         c=PredictedAcc, vmax=vmax*10, vmin=vmin*10,
+                         c=PredictedAcc*10, vmax=vmax*10, vmin=vmin*10,
                          cmap=cm[0], rasterized=True)
     else:
         pcm = ax.scatter(ModelEmbedding[0:PredictedAcc.shape[0],0],
@@ -660,6 +660,11 @@ def plot_bo_evolution(kappa, x_obs, y_obs, z_obs, x, y, gp, vmax, vmin,
     fig, axs = plt.subplots(5, 3, figsize=(12,18))
     n_samples = [5, 10, 20, 30, 50]
     cm = ['coolwarm', 'seismic']
+
+    # Make sure that predictions for Regression analysis are on the correct
+    # scale
+    if ClassOrRegression == 'Regression':
+        PredictedAcc = PredictedAcc * 10
 
     for idx, NumSamplesToInclude in enumerate(n_samples):
 
