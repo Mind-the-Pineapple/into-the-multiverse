@@ -1,7 +1,6 @@
 scikit-learn==0.24.1
-pandas==1.0.5
+pandas
 sklearn_rvm
-plotly==4.9.0
 pyreadr==0.2.9
 scipy==1.5.2
 bctpy==0.5.2

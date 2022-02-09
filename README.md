@@ -18,6 +18,8 @@ For most neuroimaging questions the huge range of possible analytic choices lead
   creation for the classification analysis will go over the time allotted for the
   free usage of Colab.
 
+- :computer: The code on this repo was run and tested using Python 3.7.12. 
+
 ## Citation
 If you find this code useful, please cite:
 
