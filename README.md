@@ -1,4 +1,5 @@
 # Into the Multiverse
+[![DOI](https://zenodo.org/badge/288135546.svg)](https://zenodo.org/badge/latestdoi/288135546)
 
 Code for the paper "Neuroimaging: Into the multiverse".
 ![Image](figures/overview_analysis.png)
